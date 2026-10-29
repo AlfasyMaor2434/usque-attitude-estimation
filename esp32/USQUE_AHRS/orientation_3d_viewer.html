@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>USQUE_AHRS 3D orientation viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0f14; color: #dfe6ee; font-family: system-ui, sans-serif; overflow: hidden; }
+  body { display: flex; flex-direction: row; }
+  #panel {
+    position: relative; z-index: 10; box-sizing: border-box;
+    flex: 0 0 50%; max-width: 50%; height: 100%; overflow-y: auto;
+    background: rgba(15,20,28,0.95); border-right: 1px solid #2a3a4a;
+    padding: 12px 14px; font-size: 13px; line-height: 1.5;
+    transition: flex-basis 0.18s ease, max-width 0.18s ease, padding 0.18s ease;
+  }
+  #panel.minimized { flex-basis: 0; max-width: 0; padding-left: 0; padding-right: 0; overflow: hidden; border-right: none; }
+  #viewport { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; }
+  #viewport canvas { display: block; }
+  #btnShowPanel {
+    display: none; position: fixed; top: 10px; left: 10px; z-index: 30;
+  }
+  #panel h1 { font-size: 14px; margin: 0 0 8px 0; color: #9fd3ff; }
+  button {
+    background: #1d3a54; color: #dfe6ee; border: 1px solid #3a5a78; border-radius: 6px;
+    padding: 6px 12px; margin: 2px 4px 8px 0; cursor: pointer; font-size: 13px;
+  }
+  button:hover { background: #274a68; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  #status { font-weight: 600; }
+  .ok   { color: #6ee7a0; }
+  .bad  { color: #ff8080; }
+  .warn { color: #ffd479; }
+  .legend span { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  #raw { font-size: 11px; color: #7f93a6; word-break: break-all; margin-top: 6px; max-height: 3.2em; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <button id="btnMinimize" style="float:right;">Minimize panel &#9664;</button>
+  <h1>USQUE_AHRS &mdash; live 3D orientation</h1>
+  <div>status: <span id="status" class="warn">not connected</span></div>
+  <div style="margin-top:8px;">
+    <button id="btnConnect">Connect (pick COM3)</button>
+    <button id="btnDisconnect" disabled>Disconnect</button><br>
+    <button id="btnConnectFile">Connect to file (MATLAB)</button>
+    <button id="btnDisconnectFile" disabled>Disconnect file</button><br>
+    <button id="btnTare">Tare / zero current pose</button>
+    <button id="btnUntare">Clear tare</button><br>
+    <button id="btnMagCal" title="Restarts the board into its magnetometer calibration: keep it still for the health check, then rotate it through every orientation when the log says ROTATE NOW.">Calibrate magnetometer</button>
+    <button id="btnNoSeed" title="Restarts the board for ONE run in which the filter starts from zero gyro bias and has to find it itself. Keep the board flat and still while it restarts.">Restart without bias seed (demo)</button>
+    <button id="btnAccLpf" title="Flips the accelerometer low-pass filter (ON = causal 15 Hz, OFF = raw samples), stores the choice on the board and restarts it. The boot lines and the accLpf field in every log line say which is active.">Toggle accelerometer filter</button>
+  </div>
+  <div class="legend">
+    <span style="background:#ff5555"></span>X &nbsp;/&nbsp; <b>Roll</b> axis<br>
+    <span style="background:#55ff55"></span>Y &nbsp;/&nbsp; <b>Pitch</b> axis<br>
+    <span style="background:#5599ff"></span>Z &nbsp;/&nbsp; <b>Yaw</b> axis<br>
+    <span style="background:#ffffff"></span>white nose = board "front"
+  </div>
+  <hr style="border-color:#2a3a4a; margin:10px 0;">
+  <div><b>Log</b> (every raw line, timestamped) &mdash; <span id="logCount">0</span> lines</div>
+  <div style="margin-top:4px;">
+    <button id="btnLogToggle">Pause log</button>
+    <button id="btnLogSave">Save log to file</button>
+    <button id="btnLogClear">Clear log</button>
+  </div>
+  <div style="margin-top:6px;">
+    <input id="markText" type="text" placeholder="describe what you're doing, then press Enter"
+           style="width:100%; box-sizing:border-box; background:#0f1620; color:#dfe6ee; border:1px solid #3a5a78; border-radius:6px; padding:6px 8px;">
+  </div>
+  <div style="margin-top:8px;">
+    roll: <span id="vRoll">&mdash;</span>&deg;&nbsp;&nbsp;
+    pitch: <span id="vPitch">&mdash;</span>&deg;&nbsp;&nbsp;
+    yaw: <span id="vYaw">&mdash;</span>&deg;
+  </div>
+  <div id="raw">&nbsp;</div>
+</div>
+
+<div id="viewport"></div>
+<button id="btnShowPanel">Show panel &#9654;</button>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+// ============================================================================
+// Reads the USQUE_AHRS.ino serial line ("roll_deg:..,pitch_deg:..,yaw_deg:..,...")
+// over Web Serial and renders a live 3D box with labeled body-axis arrows.
+//
+// The rotation math is a verbatim port of USQUE_AHRS.h's eulerToQuat(): body
+// X = roll axis, Y = pitch axis, Z = yaw axis, Hamilton quaternion, SAME
+// composition the firmware uses. This is a body-axis viewer, not a real-
+// world-horizon viewer -- "up" on screen is not gravity-up. The point is to
+// see, unambiguously, which labeled arrow moves when you rotate the real
+// board about a given axis.
+//
+// Chrome / Edge only (Web Serial). Close the Arduino Serial Monitor/Plotter
+// first -- only one program can hold the COM port at a time.
+// ============================================================================
+
+// ---- quaternion matching USQUE_AHRS.h eulerToQuat() exactly (roll=X,pitch=Y,yaw=Z) ----
+function eulerToQuat(rollRad, pitchRad, yawRad) {
+  const cr = Math.cos(0.5*rollRad),  sr = Math.sin(0.5*rollRad);
+  const cp = Math.cos(0.5*pitchRad), sp = Math.sin(0.5*pitchRad);
+  const cy = Math.cos(0.5*yawRad),   sy = Math.sin(0.5*yawRad);
+  const w = cr*cp*cy + sr*sp*sy;
+  const x = sr*cp*cy - cr*sp*sy;
+  const y = cr*sp*cy + sr*cp*sy;
+  const z = cr*cp*sy - sr*sp*cy;
+  return new THREE.Quaternion(x, y, z, w); // three.js Quaternion ctor is (x,y,z,w)
+}
+function quatConjugate(q) { return new THREE.Quaternion(-q.x, -q.y, -q.z, q.w); } // = inverse for unit q
+
+// ---- gimbal-lock-damped Euler angles, for the TEXT DISPLAY only ----
+// roll/pitch/yaw is a 3-number parameterisation with an unavoidable
+// singularity at pitch = +-90 deg: roll and yaw collapse into one physical
+// degree of freedom there, and no formula can recover a 3rd independent
+// number that doesn't exist at that exact attitude. What IS fixable is the
+// failure mode approaching it: the standard atan2 formulas divide by a
+// factor that -> 0 as pitch -> +-90 deg, so ordinary float noise in the
+// quaternion gets amplified into a large, visible swing in raw roll/yaw
+// even though the real attitude (and the cube, driven by the quaternion
+// directly) barely moved. Damping the displayed value more heavily the
+// closer we are to the pole turns that swing into a smooth drift instead.
+let dispRoll = null, dispYaw = null;
+function lerpAngleRad(prev, target, alpha) {
+  let diff = ((target - prev + Math.PI) % (2 * Math.PI)) - Math.PI;
+  if (diff < -Math.PI) diff += 2 * Math.PI;
+  return prev + diff * alpha;
+}
+function eulerFromQuatDisplaySafe(q) {
+  const w = q.w, x = q.x, y = q.y, z = q.z;
+  let sinPitch = 2 * (w * y - z * x);
+  sinPitch = Math.max(-1, Math.min(1, sinPitch));
+  const pitch = Math.asin(sinPitch);
+  const rollRaw = Math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y));
+  const yawRaw  = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
+  // ~0 except very close to the pole (|sinPitch| -> 1); high exponent keeps
+  // the damping essentially off everywhere except the last couple of degrees.
+  const poleCloseness = Math.pow(Math.abs(sinPitch), 8);
+  const alpha = 1 - 0.985 * poleCloseness;   // 1 = track instantly, ~0.015 = heavy damping right at the pole
+  dispRoll = (dispRoll === null) ? rollRaw : lerpAngleRad(dispRoll, rollRaw, alpha);
+  dispYaw  = (dispYaw  === null) ? yawRaw  : lerpAngleRad(dispYaw,  yawRaw,  alpha);
+  return { roll: dispRoll, pitch, yaw: dispYaw };
+}
+
+// ---- fixed body-axis -> screen-axis remap ----
+// The filter's real convention (matching the whole finalProject, PC and
+// Arduino alike) is NED/FRD: Z is the yaw axis and physically points DOWN,
+// not up -- X/Y (roll/pitch) are the horizontal-ish axes. three.js's OWN
+// scene convention treats Y as "up" for rendering, with no relation to
+// gravity. Feeding body X/Y/Z straight into scene X/Y/Z 1:1 (the previous
+// version) put the pitch axis in the "up" slot and the yaw axis in a
+// horizontal slot -- backwards from physical intuition.
+// This fixed 90 deg rotation about body X re-expresses body axes in a
+// screen frame where the YAW arrow renders vertical (matching "spin axis
+// = the vertical one") and roll/pitch render horizontal, while leaving the
+// roll/pitch/yaw NUMBERS and the red/green/blue = Roll/Pitch/Yaw labelling
+// untouched -- it only changes which screen direction each one points in.
+// (Using -90 deg here makes the yaw arrow point UP when level, the more
+// intuitive reading for a desk demo; flip the sign to +Math.PI/2 to make
+// it point DOWN, literally mirroring the filter's internal Z-down.)
+const Q_FRAME_FIX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2);
+
+// ---- three.js scene ----
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0f14);
+
+const viewportEl = document.getElementById('viewport');
+
+const camera = new THREE.PerspectiveCamera(45, viewportEl.clientWidth/viewportEl.clientHeight, 0.1, 100);
+camera.position.set(4.5, 3.5, 5.5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(viewportEl.clientWidth, viewportEl.clientHeight);
+viewportEl.appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const dl = new THREE.DirectionalLight(0xffffff, 0.6); dl.position.set(5,8,4); scene.add(dl);
+
+// fixed world/reference triad (does NOT rotate) so the box's motion is visible
+// relative to something stationary.
+scene.add(new THREE.AxesHelper(3));
+const grid = new THREE.GridHelper(8, 16, 0x2a3a4a, 0x1a2530);
+scene.add(grid);
+
+// ---- the rotating "board": a flat box + a nose marker + labeled body arrows ----
+const board = new THREE.Group();
+scene.add(board);
+
+const boxGeo = new THREE.BoxGeometry(2.2, 0.25, 1.2);   // long axis = X = "forward/roll"
+const boxMat = new THREE.MeshPhongMaterial({ color: 0x3a6ea5, shininess: 40 });
+const boxMesh = new THREE.Mesh(boxGeo, boxMat);
+board.add(boxMesh);
+
+// nose marker (a small cone) at +X so yaw/roll orientation is unambiguous even
+// though the box alone is symmetric front-to-back.
+const nose = new THREE.Mesh(
+  new THREE.ConeGeometry(0.18, 0.5, 12),
+  new THREE.MeshPhongMaterial({ color: 0xffffff })
+);
+nose.rotation.z = -Math.PI/2;         // cone default points +Y; point it along +X
+nose.position.set(1.35, 0, 0);
+board.add(nose);
+
+// body-axis arrows, attached to the board so they rotate with it
+const AXLEN = 2.4;
+board.add(new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0), AXLEN, 0xff5555, 0.3, 0.15)); // X / roll
+board.add(new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0), AXLEN, 0x55ff55, 0.3, 0.15)); // Y / pitch
+board.add(new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,0), AXLEN, 0x5599ff, 0.3, 0.15)); // Z / yaw
+
+// ---- render loop: slerp toward the latest received orientation for smooth motion ----
+let qTarget = new THREE.Quaternion();
+let qTareInv = new THREE.Quaternion(); // identity = no tare
+function animate() {
+  requestAnimationFrame(animate);
+  board.quaternion.slerp(qTareInv.clone().multiply(qTarget), 0.25);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+function resizeViewport() {
+  const w = viewportEl.clientWidth, h = viewportEl.clientHeight;
+  if (w <= 0 || h <= 0) return;
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+window.addEventListener('resize', resizeViewport);
+
+// ---- panel minimize / show toggle: reclaims the panel's half of the screen
+// for the 3D view without needing OrbitControls-friendly overlap. ----
+const panelEl = document.getElementById('panel');
+const btnMinimize = document.getElementById('btnMinimize');
+const btnShowPanel = document.getElementById('btnShowPanel');
+btnMinimize.onclick = () => {
+  panelEl.classList.add('minimized');
+  btnShowPanel.style.display = 'block';
+};
+btnShowPanel.onclick = () => {
+  panelEl.classList.remove('minimized');
+  btnShowPanel.style.display = 'none';
+};
+// the panel width animates (CSS transition, ~180ms), so keep the 3D view's
+// aspect correct throughout instead of only snapping at the end.
+function kickResizeAnimation() {
+  const t0 = performance.now();
+  function step() {
+    resizeViewport();
+    if (performance.now() - t0 < 260) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+btnMinimize.addEventListener('click', kickResizeAnimation);
+btnShowPanel.addEventListener('click', kickResizeAnimation);
+
+// ---- Web Serial glue ----
+const statusEl = document.getElementById('status');
+const rawEl = document.getElementById('raw');
+const vRoll = document.getElementById('vRoll'), vPitch = document.getElementById('vPitch'), vYaw = document.getElementById('vYaw');
+const btnConnect = document.getElementById('btnConnect'), btnDisconnect = document.getElementById('btnDisconnect');
+const btnConnectFile = document.getElementById('btnConnectFile'), btnDisconnectFile = document.getElementById('btnDisconnectFile');
+// Sends a one-line command to the board ("C" = redo the magnetometer calibration).
+async function sendCommand(text) {
+  if (!port || !port.writable) { setStatus('not connected to the board', 'bad'); return; }
+  const writer = port.writable.getWriter();
+  try { await writer.write(new TextEncoder().encode(text + '\n')); }
+  catch (e) { setStatus('send failed: ' + e.message, 'bad'); }
+  finally { writer.releaseLock(); }
+}
+document.getElementById('btnAccLpf').onclick = () => {
+  logAppend('MARK', 'accelerometer low-pass toggle requested (board restarts; see the boot line for the new state)');
+  sendCommand('L');
+};
+document.getElementById('btnNoSeed').onclick = () => {
+  logAppend('MARK', 'restart WITHOUT gyro-bias seed requested (bias convergence demonstration)');
+  sendCommand('Z');
+};
+document.getElementById('btnMagCal').onclick = () => {
+  logAppend('MARK', 'magnetometer calibration requested -- follow the instructions in the log');
+  sendCommand('C');
+};
+document.getElementById('btnTare').onclick = () => { qTareInv = quatConjugate(qTarget.clone()); logAppend('MARK', 'tare pressed'); };
+document.getElementById('btnUntare').onclick = () => { qTareInv = new THREE.Quaternion(); logAppend('MARK', 'tare cleared'); };
+
+// ---- session log: every raw serial line + user-typed markers, timestamped.
+// Meant to be saved and handed over as-is instead of describing results --
+// "MARK" lines are whatever you typed right when something happened, "RAW"
+// lines are the exact firmware output (includes qw/qx/qy/qz, sigmas, biases).
+const t0 = performance.now();
+let logLines = [];
+let logging = true;
+function tsNow() {
+  const d = new Date();
+  const wall = d.toTimeString().slice(0,8) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+  const rel = ((performance.now() - t0) / 1000).toFixed(3);
+  return `[${wall} +${rel}s]`;
+}
+function logAppend(kind, text) {
+  if (!logging && kind !== 'MARK') return;   // MARK always recorded, even if log paused
+  logLines.push(`${tsNow()} ${kind}  ${text}`);
+  document.getElementById('logCount').textContent = logLines.length;
+}
+const btnLogToggle = document.getElementById('btnLogToggle');
+btnLogToggle.onclick = () => {
+  logging = !logging;
+  btnLogToggle.textContent = logging ? 'Pause log' : 'Resume log';
+  logAppend('MARK', logging ? '--- log resumed ---' : '--- log paused ---');
+};
+document.getElementById('btnLogSave').onclick = () => {
+  const blob = new Blob([logLines.join('\n') + '\n'], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  a.href = url; a.download = `usque_ahrs_log_${stamp}.txt`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+document.getElementById('btnLogClear').onclick = () => {
+  logLines = []; document.getElementById('logCount').textContent = 0;
+  logAppend('MARK', '--- log cleared ---');
+};
+const markInput = document.getElementById('markText');
+markInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && markInput.value.trim()) {
+    logAppend('MARK', markInput.value.trim());
+    markInput.value = '';
+  }
+});
+
+let port, reader, keepReading = false;
+
+function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls; }
+
+async function connect() {
+  if (!('serial' in navigator)) {
+    setStatus('Web Serial not available - use Chrome or Edge', 'bad');
+    return;
+  }
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 460800 });   // must match SERIAL_BAUD in USQUE_AHRS.ino
+  } catch (e) {
+    setStatus('connect failed: ' + e.message, 'bad');
+    return;
+  }
+  setStatus('connected', 'ok');
+  btnConnect.disabled = true; btnDisconnect.disabled = false;
+  logAppend('MARK', '=== connected ===');
+  keepReading = true;
+  readLoop();
+}
+
+async function disconnect() {
+  keepReading = false;
+  try { if (reader) await reader.cancel(); } catch (e) {}
+  try { if (port) await port.close(); } catch (e) {}
+  setStatus('disconnected', 'warn');
+  btnConnect.disabled = false; btnDisconnect.disabled = true;
+  logAppend('MARK', '=== disconnected ===');
+}
+
+// ---- alternate source: a local file MATLAB overwrites with the latest
+// state line (live_phone_usque.m), for comparing this viewer against the
+// native MATLAB plot when streaming from a phone instead of the ESP32.
+// Uses Chrome's File System Access API to re-read the SAME file handle on
+// an interval -- no server, no COM-port emulation, and it feeds the exact
+// same handleLine() parser the Web Serial path uses, so nothing about the
+// rendering/gimbal-lock-safe display logic differs between the two sources.
+let fileHandle = null, filePollTimer = null, lastFileText = '';
+
+async function connectFile() {
+  if (!('showOpenFilePicker' in window)) {
+    setStatus('File System Access API not available - use Chrome or Edge', 'bad');
+    return;
+  }
+  try {
+    [fileHandle] = await window.showOpenFilePicker({
+      types: [{ description: 'USQUE live state', accept: { 'text/plain': ['.txt'] } }]
+    });
+  } catch (e) {
+    return;   // user cancelled the picker
+  }
+  setStatus('connected (file)', 'ok');
+  btnConnectFile.disabled = true; btnDisconnectFile.disabled = false;
+  logAppend('MARK', '=== connected to file (MATLAB) ===');
+  lastFileText = '';
+  filePollTimer = setInterval(async () => {
+    try {
+      const file = await fileHandle.getFile();
+      const text = (await file.text()).trim();
+      if (text && text !== lastFileText) {
+        lastFileText = text;
+        handleLine(text);
+      }
+    } catch (e) {
+      setStatus('file read error: ' + e.message, 'bad');
+      disconnectFile();
+    }
+  }, 50);   // 20 Hz poll -- matches live_phone_usque.m's plot-rate write cadence
+}
+
+function disconnectFile() {
+  if (filePollTimer) { clearInterval(filePollTimer); filePollTimer = null; }
+  fileHandle = null;
+  setStatus('disconnected', 'warn');
+  btnConnectFile.disabled = false; btnDisconnectFile.disabled = true;
+  logAppend('MARK', '=== disconnected from file ===');
+}
+
+async function readLoop() {
+  const decoder = new TextDecoderStream();
+  const readableClosed = port.readable.pipeTo(decoder.writable);
+  reader = decoder.readable.getReader();
+  let buf = '';
+  try {
+    while (keepReading) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      buf += value;
+      let idx;
+      while ((idx = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (line) handleLine(line);
+      }
+    }
+  } catch (e) {
+    setStatus('read error: ' + e.message, 'bad');
+  } finally {
+    try { reader.releaseLock(); } catch (e) {}
+    try { await readableClosed; } catch (e) {}
+  }
+}
+
+function handleLine(line) {
+  rawEl.textContent = line;
+  logAppend('RAW', line);
+  // parse "key:value,key:value,..." -- ignores any plain-text lines (e.g. the
+  // "waiting for still+mag..." / boot messages) since they won't match all 3 keys.
+  const fields = {};
+  for (const tok of line.split(',')) {
+    const c = tok.indexOf(':');
+    if (c < 0) continue;
+    fields[tok.slice(0, c).trim()] = parseFloat(tok.slice(c + 1));
+  }
+  let qBody;
+  if ('qw' in fields && 'qx' in fields && 'qy' in fields && 'qz' in fields) {
+    // Preferred: the filter's own internal quaternion, sent directly. No
+    // Euler round-trip -> immune to gimbal lock (pitch near +-90 deg),
+    // unlike reconstructing from roll_deg/pitch_deg/yaw_deg.
+    qBody = new THREE.Quaternion(fields.qx, fields.qy, fields.qz, fields.qw);
+  } else if ('roll_deg' in fields && 'pitch_deg' in fields && 'yaw_deg' in fields) {
+    const D2R = Math.PI / 180;
+    qBody = eulerToQuat(fields.roll_deg*D2R, fields.pitch_deg*D2R, fields.yaw_deg*D2R);
+  } else {
+    return;
+  }
+  qTarget = Q_FRAME_FIX.clone().multiply(qBody);   // body(NED/FRD) -> screen
+  // Displayed roll/pitch/yaw NUMBERS are derived from qBody the same way
+  // (see eulerFromQuatDisplaySafe above) instead of printing the firmware's
+  // own roll_deg/pitch_deg/yaw_deg verbatim -- those come from the SAME kind
+  // of Euler decomposition, which is genuinely singular at pitch=+-90 deg
+  // (roll and yaw become one indistinguishable degree of freedom there; no
+  // formula recovers a 3rd number that doesn't exist). What was actually
+  // fixable is the failure mode: near the pole, float noise in the
+  // quaternion gets divided by ~cos(pitch)->0 and explodes into a big
+  // roll/yaw swing even though attitude barely moved -- eulerFromQuatDisplaySafe
+  // damps the displayed value as the pole is approached so it drifts
+  // smoothly instead of jumping. The cube (qTarget above) is untouched and
+  // was already immune, since it uses the quaternion directly.
+  const R2D = 180 / Math.PI;
+  if ('yawHeld' in fields && 'roll_deg' in fields) {
+    // Newer firmware already prints gimbal-safe angles (yaw held near pitch +-90, roll carries
+    // the rotation) -- show exactly those, so the panel and the saved log agree.
+    vRoll.textContent  = fields.roll_deg.toFixed(2);
+    vPitch.textContent = fields.pitch_deg.toFixed(2);
+    vYaw.textContent   = fields.yaw_deg.toFixed(2) + (fields.yawHeld ? ' (held)' : '');
+  } else {
+    const eul = eulerFromQuatDisplaySafe(qBody);
+    vRoll.textContent  = (eul.roll  * R2D).toFixed(2);
+    vPitch.textContent = (eul.pitch * R2D).toFixed(2);
+    vYaw.textContent   = (eul.yaw   * R2D).toFixed(2);
+  }
+}
+
+btnConnect.onclick = connect;
+btnDisconnect.onclick = disconnect;
+btnConnectFile.onclick = connectFile;
+btnDisconnectFile.onclick = disconnectFile;
+</script>
+</body>
+</html>
