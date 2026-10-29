@@ -1,0 +1,6 @@
+numpy>=2.0
+scipy>=1.13
+matplotlib>=3.8
+pandas>=2.0
+PyYAML>=6.0
+plotly>=5.0      # interactive plots in metrics.py (optional)
