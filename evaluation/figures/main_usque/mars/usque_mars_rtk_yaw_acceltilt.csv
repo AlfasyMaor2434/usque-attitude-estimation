@@ -1,0 +1,4 @@
+﻿flight,n_windows,Roll RMSE,Pitch RMSE,Roll MAE,Pitch MAE,Roll MaxAbs,Pitch MaxAbs,Roll bias(signed),Pitch bias(signed),Roll NEES (dof1),Pitch NEES (dof1),"qAE (accel r/p, Wahba yaw)",gyro-consist Roll,gyro-consist Pitch,WahbaGT Roll vs accel,WahbaGT Pitch vs accel
+mars_5_sensors,2,0.036,0.042,0.034,0.039,0.045,0.054,-0.034,0.015,0.004,0.005,0.141,0.785,0.314,0.148,1.076
+mars_6_sensors,2,0.08,0.012,0.066,0.012,0.112,0.014,0.066,0.012,0.042,0.001,3.6,1.058,0.816,0.723,1.177
+mars_7_sensors,3,0.247,0.068,0.184,0.062,0.414,0.102,-0.114,-0.04,0.195,0.019,1.633,1.384,0.917,0.953,0.255

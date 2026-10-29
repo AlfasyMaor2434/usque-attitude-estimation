@@ -1,0 +1,5 @@
+﻿0,RMSE - Root Mean Square Error,,,,MAE -Mean Absolute Error,,,Safety - Max Absolute Error,,,,
+run,Roll Mean,Pitch Mean,Yaw Mean,Mean qAE,Roll Mean MAE,Pitch Mean MAE,Yaw Mean MAE,Roll Max Error,Pitch Max Error,Yaw Max Error,NIS (Ideal 6),NEES (ideal 3)
+1,1.166,1.159,1.691,1.829,0.762,0.944,0.918,8.075,5.369,8.716,3.5,7.2
+2,1.442,2.11,2.845,3.187,1.098,1.736,1.961,6.524,6.343,7.338,2.5,22.0
+3,1.975,1.618,2.532,3.147,1.511,1.199,2.039,8.01,7.666,8.816,4.9,17.3

@@ -1,0 +1,23 @@
+replay vs MATLAB live: median 0.04 deg, p90 3.86, max 84.19
+
+absolute total angle vs the app, phone at rest / slow motion (89% of the run)
+variant                                 median    p90  >10 deg | first 150 s: median    max | max|bgZ|
+as live                                   4.49   7.07     0.0% |                4.49   7.19 | 0.003 deg/s
+seed                                      1.59   3.33     0.0% |                1.59   6.90 | 0.003 deg/s
+seed + mag R 1.0                          0.91   1.63     0.0% |                0.91   3.53 | 0.002 deg/s
+seed + mag R 3.0                          0.72   1.41     0.0% |                0.72   3.52 | 0.001 deg/s
+seed + gate off + mag R 3.0               0.79   7.52     0.0% |                0.79   9.88 | 0.003 deg/s
+seed + gate off + mag R 10                0.62   5.84     0.0% |                0.62   8.14 | 0.002 deg/s
+seed + gate off + mag R 30                0.45   4.59     0.0% |                0.45   6.50 | 0.002 deg/s
+seed + psiMag + gate off + mag R 1.0      0.66   6.38     0.0% |                0.66   7.22 | 0.003 deg/s
+seed + psiMag + gate off + mag R 3.0      0.50   5.24     0.0% |                0.50   6.40 | 0.002 deg/s
+no magnetometer (gyro + accel)            0.08   2.58     0.0% |                0.08   4.94 | 0.002 deg/s
+
+Resting flat poses (>= 3 s still, |pitch|,|roll| < 10 deg): heading at each, and the turn since the previous pose
+       t (s) |   filter  gyro only      app | turn:   filter  gyro only      app | bgZ
+    0-   35 |     31.6       36.1     31.1 | turn:                              | -0.001
+   37-   60 |     29.0       36.0     31.0 | turn:     -2.6       -0.1     -0.1 | -0.000
+   61-   74 |    -54.2      -49.3    -56.9 | turn:    -83.2      -85.4    -87.9 | -0.002
+   74-   78 |    -52.1      -48.7    -56.0 | turn:     +2.2       +0.6     +0.9 | -0.002
+
+saved to matlab\USQUE_AHRS_MATLAB\phone_tests

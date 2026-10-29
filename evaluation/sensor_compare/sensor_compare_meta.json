@@ -1,0 +1,16 @@
+{
+ "flights": [
+  "indoor_1",
+  "indoor_2",
+  "indoor_3"
+ ],
+ "variants": [
+  "px4",
+  "px4_mag",
+  "lsm",
+  "lsm_mag",
+  "lsm_sc",
+  "lsm_sc_mag"
+ ],
+ "lsm_gyro_scale": 1.171
+}

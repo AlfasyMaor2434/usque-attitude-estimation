@@ -1,0 +1,26 @@
+{
+  "indoor": {
+    "gyro_noise_var": 3e-05,
+    "accel_noise_var": 0.002,
+    "phys_dir_thresh_deg": 2.0,
+    "max_phys_inflation": 20.0,
+    "max_vib_inflation": 10.0,
+    "mag_noise_var": 0.05,
+    "use_mag_bias_state": false,
+    "mag_bias_tau_s": 60.0,
+    "mag_bias_sigma_ss_deg": 30.0,
+    "fusion_rate_hz": 30.0
+  },
+  "mars": {
+    "gyro_noise_var": 3e-05,
+    "accel_noise_var": 0.002,
+    "phys_dir_thresh_deg": 2.0,
+    "max_phys_inflation": 20.0,
+    "max_vib_inflation": 10.0,
+    "mag_noise_var": 0.05,
+    "use_mag_bias_state": true,
+    "mag_bias_tau_s": 60.0,
+    "mag_bias_sigma_ss_deg": 30.0,
+    "fusion_rate_hz": 30.0
+  }
+}

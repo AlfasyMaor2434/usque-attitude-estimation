@@ -1,0 +1,4 @@
+﻿flight,n_windows,Roll RMSE,Pitch RMSE,Roll MAE,Pitch MAE,Roll MaxAbs,Pitch MaxAbs,Roll bias(signed),Pitch bias(signed),Roll NEES (dof1),Pitch NEES (dof1),"qAE (accel r/p, Wahba yaw)",gyro-consist Roll,gyro-consist Pitch,WahbaGT Roll vs accel,WahbaGT Pitch vs accel
+indoor_1_sensors,2,0.019,0.037,0.018,0.037,0.025,0.044,-0.007,0.007,0.002,0.009,0.055,0.502,0.539,0.391,2.486
+indoor_2_sensors,2,0.02,0.025,0.014,0.019,0.028,0.035,-0.014,0.016,0.002,0.004,0.305,0.378,0.377,0.155,1.958
+indoor_3_sensors,1,0.006,0.005,0.006,0.005,0.006,0.005,0.006,0.005,0.0,0.0,0.088,0.669,0.802,0.165,3.131
